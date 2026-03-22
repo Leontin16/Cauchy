@@ -156,7 +156,7 @@ class App(tk.Tk):
         fields = [
             ('a  (лев. граница):', 'a_var', '0'),
             ('b  (прав. граница):', 'b_var', '5'),
-            ('h₀ (нач. шаг):', 'h_var', '0.1'),
+            ('h₀ (нач. шаг):', 'h_var', '0.001'),
             ('Nmax:', 'nmax_var', '10000'),
         ]
         for r, (lbl, attr, default) in enumerate(fields):
@@ -340,6 +340,12 @@ class App(tk.Tk):
 
     # ── Графики ─────────────────────────────────────────────
     def _update_plots(self):
+        try:
+            self._update_plots_inner()
+        except Exception as e:
+            messagebox.showerror('Ошибка построения графиков', str(e))
+
+    def _update_plots_inner(self):
         is_test = self.problem_var.get() == 1
         method = self.method_var.get()
 
@@ -350,12 +356,20 @@ class App(tk.Tk):
             'main_adapt.txt'
         )
 
-        # Ищем файл рядом с exe или в cwd
+        # Ищем файл рядом с exe, в cwd и рядом со скриптом
         exe_dir = os.path.dirname(os.path.abspath(self.exe_path))
-        fpath = os.path.join(exe_dir, fname)
-        if not os.path.isfile(fpath):
-            fpath = os.path.join(os.getcwd(), fname)
-        if not os.path.isfile(fpath):
+        candidates = [
+            os.path.join(exe_dir, fname),
+            os.path.join(os.getcwd(), fname),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), fname),
+        ]
+        fpath = next((p for p in candidates if os.path.isfile(p)), None)
+        if fpath is None:
+            messagebox.showwarning(
+                'Файл не найден',
+                f'Не удалось найти файл данных: {fname}\n\nИскал в:\n' +
+                '\n'.join(candidates)
+            )
             return
 
         rows = []
@@ -370,9 +384,26 @@ class App(tk.Tk):
                     pass
 
         if not rows:
+            messagebox.showwarning('Нет данных', f'Файл {fname} пуст или не содержит числовых данных.')
             return
 
         data = np.array(rows)
+
+        # Filter out rows with NaN or Inf — signal numerical blow-up
+        valid = np.all(np.isfinite(data), axis=1)
+        n_bad = np.sum(~valid)
+        if n_bad > 0:
+            messagebox.showwarning(
+                'Численная нестабильность',
+                f'В данных обнаружено {n_bad} строк с NaN/Inf.\n'
+                f'Уменьшите шаг h (рекомендуется h ≤ 0.001 для основной задачи).\n'
+                f'Графики построены по {np.sum(valid)} корректным точкам.'
+            )
+            data = data[valid]
+        if data.shape[0] == 0:
+            messagebox.showerror('Нет данных', 'Все точки содержат NaN/Inf. Уменьшите шаг h.')
+            return
+
         self._last_data = data
         self._last_is_test = is_test
 
