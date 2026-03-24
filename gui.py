@@ -255,6 +255,18 @@ class App(tk.Tk):
         tb3.pack(side='bottom', fill='x')
         self.canvas3.get_tk_widget().pack(fill='both', expand=True)
 
+        # Вкладка 5: график производной
+        tab_deriv = ttk.Frame(nb)
+        nb.add(tab_deriv, text='  Производная  ')
+        self.fig4 = Figure(facecolor='#11111b', tight_layout=True)
+        self.ax4 = self.fig4.add_subplot(111)
+        self._style_axes(self.ax4)
+        self.canvas4 = FigureCanvasTkAgg(self.fig4, master=tab_deriv)
+        tb4 = NavigationToolbar2Tk(self.canvas4, tab_deriv)
+        tb4.config(bg=self.BTN_BG)
+        tb4.pack(side='bottom', fill='x')
+        self.canvas4.get_tk_widget().pack(fill='both', expand=True)
+
         self._nb = nb
 
     def _style_axes(self, ax):
@@ -475,7 +487,38 @@ class App(tk.Tk):
             self.ax3.legend(facecolor='#313244', edgecolor=self.SEP, labelcolor=self.FG)
             self.ax3.grid(True, color=self.SEP, linestyle='--', linewidth=0.5, which='both')
 
-        for canvas in (self.canvas1, self.canvas2, self.canvas3):
+        # ── Вкладка 4: производная ─────────────────────────────
+        self.ax4.clear()
+        self._style_axes(self.ax4)
+
+        if is_test:
+            # f(x) = du/dx = -1.5*u ≈ -1.5*v (приближённое) и -1.5*exact (точное)
+            deriv_approx = -1.5 * data[:, 1]   # -1.5 * v
+            deriv_exact  = -1.5 * data[:, 5]   # -1.5 * u_exact
+            self.ax4.plot(x, deriv_exact,  color=self.GREEN, lw=2,   label="Точная  u'= −1.5·u")
+            self.ax4.plot(x, deriv_approx, 'o--', color=self.ACCENT, lw=1.5,
+                          markersize=4, label="Прибл.  v'= −1.5·v")
+            self.ax4.set_xlabel('x')
+            self.ax4.set_ylabel("u'(x)")
+            self.ax4.set_title("Производная: du/dx = −1.5u")
+        else:
+            # u'(x) = скорость — уже есть в столбце 2
+            vel = data[:, 2]
+            self.ax4.plot(x, vel, color=self.GREEN, lw=2, label="u'(x) — скорость")
+            # acceleration: u'' = -(c*u' + k*u + ks*u^3) / m
+            u   = data[:, 1]
+            m, c, k, ks = 0.01, 0.15, 2.0, 2.0
+            accel = -(c * vel + k * u + ks * u**3) / m
+            self.ax4.plot(x, accel, color=self.YELLOW, lw=1.5,
+                          linestyle='--', label="u''(x) — ускорение")
+            self.ax4.set_xlabel('x  (время, с)')
+            self.ax4.set_ylabel("производные")
+            self.ax4.set_title("Производные: скорость u' и ускорение u''")
+
+        self.ax4.legend(facecolor='#313244', edgecolor=self.SEP, labelcolor=self.FG)
+        self.ax4.grid(True, color=self.SEP, linestyle='--', linewidth=0.5)
+
+        for canvas in (self.canvas1, self.canvas2, self.canvas3, self.canvas4):
             canvas.draw()
 
 

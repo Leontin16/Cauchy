@@ -17,22 +17,20 @@ void print_test_table(const std::vector<StepResult>& res, std::ostream& out) {
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+----------------+---------------+\n";
     out << "|  i  |       x        |       v        |       v2       |  v_i - v2_i   |      OLP      |       h        | C1 | C2 |       u        |  |u_i - v_i|  |\n";
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+----------------+---------------+\n";
-
     for (size_t i = 0; i < res.size(); ++i) {
         const auto& r = res[i];
-        out << "| " << std::setw(3) << i+1                        << " "
-            << "| " << fmt_fixed(r.x)                             << " "
-            << "| " << fmt_fixed(r.v)                             << " "
-            << "| " << fmt_fixed(r.v2)                            << " "
-            << "| " << fmt_sci(r.err)                             << " "
-            << "| " << fmt_sci(r.err)                             << " "
-            << "| " << fmt_fixed(r.h)                             << " "
-            << "| " << std::setw(2) << r.c1                       << " "
-            << "| " << std::setw(2) << r.c2                       << " "
-            << "| " << fmt_fixed(r.exact)                         << " "
-            << "| " << fmt_sci(std::fabs(r.exact - r.v))          << " |\n";
+        out << "| " << std::setw(3) << i+1               << " "
+            << "| " << fmt_fixed(r.x)                    << " "
+            << "| " << fmt_fixed(r.v)                    << " "
+            << "| " << fmt_fixed(r.v2)                   << " "
+            << "| " << fmt_sci(r.err)                    << " "
+            << "| " << fmt_sci(r.err)                    << " "
+            << "| " << fmt_fixed(r.h)                    << " "
+            << "| " << std::setw(2) << r.c1              << " "
+            << "| " << std::setw(2) << r.c2              << " "
+            << "| " << fmt_fixed(r.exact)                << " "
+            << "| " << fmt_sci(std::fabs(r.exact - r.v)) << " |\n";
     }
-
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+----------------+---------------+\n";
 }
 
@@ -41,28 +39,28 @@ void print_main_table(const std::vector<StepResult>& res, std::ostream& out) {
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+\n";
     out << "|  i  |       x        |       v        |       v2       |  v_i - v2_i   |      OLP      |       h        | C1 | C2 |\n";
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+\n";
-
     for (size_t i = 0; i < res.size(); ++i) {
         const auto& r = res[i];
-        out << "| " << std::setw(3) << i+1         << " "
-            << "| " << fmt_fixed(r.x)              << " "
-            << "| " << fmt_fixed(r.v)              << " "
-            << "| " << fmt_fixed(r.v2)             << " "
-            << "| " << fmt_sci(r.err)              << " "
-            << "| " << fmt_sci(r.err)              << " "
-            << "| " << fmt_fixed(r.h)              << " "
-            << "| " << std::setw(2) << r.c1        << " "
-            << "| " << std::setw(2) << r.c2        << " |\n";
+        out << "| " << std::setw(3) << i+1    << " "
+            << "| " << fmt_fixed(r.x)         << " "
+            << "| " << fmt_fixed(r.v)         << " "
+            << "| " << fmt_fixed(r.v2)        << " "
+            << "| " << fmt_sci(r.err)         << " "
+            << "| " << fmt_sci(r.err)         << " "
+            << "| " << fmt_fixed(r.h)         << " "
+            << "| " << std::setw(2) << r.c1   << " "
+            << "| " << std::setw(2) << r.c2   << " |\n";
     }
-
     out << "+-----+----------------+----------------+----------------+---------------+---------------+----------------+----+----+\n";
 }
 
-void print_statistics(const std::vector<StepResult>& res, bool is_test, std::ostream& out) {
+// FIX: принимаем b явно, чтобы вычислить реальную разность b - x_n
+void print_statistics(const std::vector<StepResult>& res, bool is_test,
+                      std::ostream& out, double b) {
     if (res.empty()) return;
 
     size_t n = res.size();
-    double b = res.back().x;
+    double xn = res.back().x;
     double max_err = 0.0, max_h = 0.0, min_h = 1e100;
     double x_max_err = 0.0, x_max_h = 0.0, x_min_h = 0.0;
     double max_diff = 0.0, x_max_diff = 0.0;
@@ -80,12 +78,14 @@ void print_statistics(const std::vector<StepResult>& res, bool is_test, std::ost
 
     out << "\nСтатистика:\n";
     out << "  n            = " << n << "\n";
-    out << "  b - x_n      = " << std::fixed     << std::setprecision(10) << b << "\n";
-    out << "  max |OLP|    = " << std::scientific << std::setprecision(6)  << max_err
+    // FIX: правильная разность b - x_n
+    out << "  b - x_n      = " << std::scientific << std::setprecision(6)
+        << (b - xn) << "\n";
+    out << "  max |OLP|    = " << std::scientific << std::setprecision(6) << max_err
         << "  (x = " << std::fixed << std::setprecision(6) << x_max_err << ")\n";
     out << "  Делений шага = " << res.back().c1 << "\n";
     out << "  Удвоений     = " << res.back().c2 << "\n";
-    out << "  max h_i      = " << std::fixed     << std::setprecision(10) << max_h
+    out << "  max h_i      = " << std::fixed    << std::setprecision(10) << max_h
         << "  (x = " << std::setprecision(6) << x_max_h << ")\n";
     out << "  min h_i      = " << std::setprecision(10) << min_h
         << "  (x = " << std::setprecision(6) << x_min_h << ")\n";

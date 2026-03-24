@@ -37,35 +37,35 @@ std::vector<StepResult> integrate_fixed(
     double x = x0;
     std::vector<double> y = y0;
     int step_count = 0;
-    int total_deletions = 0;   // для постоянного шага всегда 0
-    int total_doublings = 0;
 
-    while (x < xmax && step_count < Nmax) {
-        double h_actual = std::min(h, xmax - x);
-        if (h_actual <= 0.0) break;
+    while (step_count < Nmax) {
+        // FIX: остаток до правой границы; если он пренебрежимо мал — стоп
+        double remain = xmax - x;
+        if (remain <= h * 1e-10) break;
 
-        auto y1 = rk4_step(func, x, y, h_actual);
+        double h_actual = std::min(h, remain);
+
+        auto y1   = rk4_step(func, x, y, h_actual);
         auto ymid = rk4_step(func, x, y, h_actual / 2.0);
-        auto y2 = rk4_step(func, x + h_actual / 2.0, ymid, h_actual / 2.0);
+        auto y2   = rk4_step(func, x + h_actual / 2.0, ymid, h_actual / 2.0);
 
-        double v = y1[0];
+        double v  = y1[0];
         double v2 = y2[0];
         double err = v - v2;
 
         double exact = 0.0;
-        if (is_test) {
+        if (is_test)
             exact = u0_exact * std::exp(-1.5 * (x + h_actual));
-        }
 
         StepResult res;
-        res.x = x + h_actual;
-        res.y = y2;
-        res.v = v;
-        res.v2 = v2;
+        res.x   = x + h_actual;
+        res.y   = y2;
+        res.v   = v;
+        res.v2  = v2;
         res.err = err;
-        res.h = h_actual;
-        res.c1 = total_deletions;
-        res.c2 = total_doublings;
+        res.h   = h_actual;
+        res.c1  = 0;
+        res.c2  = 0;
         res.exact = exact;
 
         results.push_back(res);
@@ -97,12 +97,12 @@ std::vector<StepResult> integrate_adaptive(
     int total_deletions = 0;
     int total_doublings = 0;
 
-    while (x < xmax && step_count < Nmax) {
-        double h_try = std::min(h, xmax - x);
-        if (h_try <= 0.0) break;
+    while (step_count < Nmax) {
+        double remain = xmax - x;
+        if (remain <= h * 1e-10) break;
 
+        double current_h = std::min(h, remain);
         bool accepted = false;
-        double current_h = h_try;
         std::vector<double> y1, y2;
         double err = 0.0;
 
@@ -115,8 +115,11 @@ std::vector<StepResult> integrate_adaptive(
 
             if (err <= eps) {
                 accepted = true;
-                if (err < eps / 10.0 && (x + current_h) < xmax) {
-                    h = current_h * 2.0;
+                // FIX: удвоение засчитываем только если удвоенный шаг
+                // реально войдёт в интервал (не будет сразу обрезан)
+                double doubled = current_h * 2.0;
+                if (err < eps / 10.0 && doubled < (xmax - x) * (1.0 - 1e-10)) {
+                    h = doubled;
                     ++total_doublings;
                 } else {
                     h = current_h;
@@ -127,28 +130,24 @@ std::vector<StepResult> integrate_adaptive(
                 if (current_h < 1e-12) {
                     std::cerr << "Внимание: шаг стал слишком маленьким, принудительное принятие.\n";
                     accepted = true;
-                    y1 = y2;
                     h = current_h;
                 }
             }
         }
 
-        double v = y1[0];
-        double v2 = y2[0];
         double exact = 0.0;
-        if (is_test) {
+        if (is_test)
             exact = u0_exact * std::exp(-1.5 * (x + current_h));
-        }
 
         StepResult res;
-        res.x = x + current_h;
-        res.y = y2;
-        res.v = v;
-        res.v2 = v2;
+        res.x   = x + current_h;
+        res.y   = y2;
+        res.v   = y1[0];
+        res.v2  = y2[0];
         res.err = err;
-        res.h = current_h;
-        res.c1 = total_deletions;
-        res.c2 = total_doublings;
+        res.h   = current_h;
+        res.c1  = total_deletions;
+        res.c2  = total_doublings;
         res.exact = exact;
 
         results.push_back(res);

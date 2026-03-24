@@ -80,7 +80,7 @@ int main() {
     } else {
         print_main_table(results, cout);
     }
-    print_statistics(results, is_test, cout);
+    print_statistics(results, is_test, cout, b);
 
     // Сохранение в файл для графиков
     string filename;

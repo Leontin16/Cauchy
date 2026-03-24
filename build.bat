@@ -4,7 +4,7 @@ echo   Building Lab1_RK4.exe  (MSVC)
 echo ================================================
 echo.
 
-set PYTHON_EXE=D:\Cauchy\.venv\Scripts\python.exe
+set PYTHON_EXE=D:\nm26\cpp\.venv\Scripts\python.exe
 
 if not exist "%PYTHON_EXE%" (
     echo ERROR: Python not found at %PYTHON_EXE%
@@ -13,7 +13,7 @@ if not exist "%PYTHON_EXE%" (
 )
 echo Python: %PYTHON_EXE%
 
-call "D:\vs 26\VC\Auxiliary\Build\vcvarsall.bat" x64
+call "D:\vsss22\VC\Auxiliary\Build\vcvarsall.bat" x64
 if errorlevel 1 (
     echo ERROR: Failed to initialize MSVC environment.
     pause & exit /b 1
