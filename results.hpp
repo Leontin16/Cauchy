@@ -2,6 +2,7 @@
 #define RESULTS_HPP
 
 #include "utils.hpp"
+#include <sstream>
 
 // Структура для хранения результатов одного шага интегрирования
 struct StepResult {
