@@ -413,7 +413,11 @@ class App(tk.Tk):
             )
             data = data[valid]
         if data.shape[0] == 0:
-            messagebox.showerror('Нет данных', 'Все точки содержат NaN/Inf. Уменьшите шаг h.')
+            messagebox.showerror(
+                'Численная нестабильность',
+                'Все точки содержат NaN/Inf — шаг h слишком большой.\n\n'
+                'Для основной задачи используйте h ≤ 0.001'
+            )
             return
 
         self._last_data = data

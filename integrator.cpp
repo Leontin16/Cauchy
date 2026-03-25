@@ -1,5 +1,12 @@
 #include "integrator.hpp"
 
+// Проверка на NaN/Inf в векторе
+static bool has_bad_values(const std::vector<double>& v) {
+    for (double x : v)
+        if (!std::isfinite(x)) return true;
+    return false;
+}
+
 std::vector<double> rk4_step(
     const std::function<std::vector<double>(double, const std::vector<double>&)>& func,
     double x,
@@ -39,7 +46,6 @@ std::vector<StepResult> integrate_fixed(
     int step_count = 0;
 
     while (step_count < Nmax) {
-        // FIX: остаток до правой границы; если он пренебрежимо мал — стоп
         double remain = xmax - x;
         if (remain <= h * 1e-10) break;
 
@@ -49,8 +55,16 @@ std::vector<StepResult> integrate_fixed(
         auto ymid = rk4_step(func, x, y, h_actual / 2.0);
         auto y2   = rk4_step(func, x + h_actual / 2.0, ymid, h_actual / 2.0);
 
-        double v  = y1[0];
-        double v2 = y2[0];
+        // Обнаружили NaN/Inf — шаг слишком большой, останавливаемся
+        if (has_bad_values(y1) || has_bad_values(y2)) {
+            std::cerr << "ОШИБКА: численная нестабильность на шаге " << step_count + 1
+                      << " (x=" << x << ", h=" << h_actual << ").\n"
+                      << "Уменьшите шаг h.\n";
+            break;
+        }
+
+        double v   = y1[0];
+        double v2  = y2[0];
         double err = v - v2;
 
         double exact = 0.0;
@@ -58,14 +72,14 @@ std::vector<StepResult> integrate_fixed(
             exact = u0_exact * std::exp(-1.5 * (x + h_actual));
 
         StepResult res;
-        res.x   = x + h_actual;
-        res.y   = y2;
-        res.v   = v;
-        res.v2  = v2;
-        res.err = err;
-        res.h   = h_actual;
-        res.c1  = 0;
-        res.c2  = 0;
+        res.x     = x + h_actual;
+        res.y     = y2;
+        res.v     = v;
+        res.v2    = v2;
+        res.err   = err;
+        res.h     = h_actual;
+        res.c1    = 0;
+        res.c2    = 0;
         res.exact = exact;
 
         results.push_back(res);
@@ -111,12 +125,21 @@ std::vector<StepResult> integrate_adaptive(
             auto ymid = rk4_step(func, x, y, current_h / 2.0);
             y2 = rk4_step(func, x + current_h / 2.0, ymid, current_h / 2.0);
 
+            // NaN/Inf при адаптивном — делим шаг
+            if (has_bad_values(y1) || has_bad_values(y2)) {
+                current_h /= 2.0;
+                ++total_deletions;
+                if (current_h < 1e-12) {
+                    std::cerr << "ОШИБКА: шаг слишком мал, интегрирование прервано.\n";
+                    goto done;
+                }
+                continue;
+            }
+
             err = std::fabs(y1[0] - y2[0]);
 
             if (err <= eps) {
                 accepted = true;
-                // FIX: удвоение засчитываем только если удвоенный шаг
-                // реально войдёт в интервал (не будет сразу обрезан)
                 double doubled = current_h * 2.0;
                 if (err < eps / 10.0 && doubled < (xmax - x) * (1.0 - 1e-10)) {
                     h = doubled;
@@ -128,34 +151,37 @@ std::vector<StepResult> integrate_adaptive(
                 current_h /= 2.0;
                 ++total_deletions;
                 if (current_h < 1e-12) {
-                    std::cerr << "Внимание: шаг стал слишком маленьким, принудительное принятие.\n";
+                    std::cerr << "Внимание: шаг стал слишком маленьким.\n";
                     accepted = true;
                     h = current_h;
                 }
             }
         }
 
-        double exact = 0.0;
-        if (is_test)
-            exact = u0_exact * std::exp(-1.5 * (x + current_h));
+        {
+            double exact = 0.0;
+            if (is_test)
+                exact = u0_exact * std::exp(-1.5 * (x + current_h));
 
-        StepResult res;
-        res.x   = x + current_h;
-        res.y   = y2;
-        res.v   = y1[0];
-        res.v2  = y2[0];
-        res.err = err;
-        res.h   = current_h;
-        res.c1  = total_deletions;
-        res.c2  = total_doublings;
-        res.exact = exact;
+            StepResult res;
+            res.x     = x + current_h;
+            res.y     = y2;
+            res.v     = y1[0];
+            res.v2    = y2[0];
+            res.err   = err;
+            res.h     = current_h;
+            res.c1    = total_deletions;
+            res.c2    = total_doublings;
+            res.exact = exact;
 
-        results.push_back(res);
+            results.push_back(res);
 
-        x = res.x;
-        y = y2;
-        ++step_count;
+            x = res.x;
+            y = y2;
+            ++step_count;
+        }
     }
 
+    done:
     return results;
 }
