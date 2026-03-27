@@ -1,6 +1,5 @@
 #include "integrator.hpp"
 
-// Проверка на NaN/Inf в векторе
 static bool has_bad_values(const std::vector<double>& v) {
     for (double x : v)
         if (!std::isfinite(x)) return true;
@@ -30,6 +29,23 @@ std::vector<double> rk4_step(
     return ynext;
 }
 
+// Начальная точка для вывода
+static StepResult make_initial(double x0, const std::vector<double>& y0,
+                                bool is_test, double u0_exact)
+{
+    StepResult r;
+    r.x     = x0;
+    r.y     = y0;
+    r.v     = y0[0];
+    r.v2    = y0[0];
+    r.err   = 0.0;
+    r.h     = 0.0;
+    r.c1    = 0;   // C1 = удвоений
+    r.c2    = 0;   // C2 = делений
+    r.exact = is_test ? u0_exact * std::exp(-1.5 * x0) : 0.0;
+    return r;
+}
+
 std::vector<StepResult> integrate_fixed(
     const std::function<std::vector<double>(double, const std::vector<double>&)>& func,
     double x0,
@@ -41,6 +57,10 @@ std::vector<StepResult> integrate_fixed(
     double u0_exact)
 {
     std::vector<StepResult> results;
+
+    // Добавляем начальную точку
+    results.push_back(make_initial(x0, y0, is_test, u0_exact));
+
     double x = x0;
     std::vector<double> y = y0;
     int step_count = 0;
@@ -55,17 +75,12 @@ std::vector<StepResult> integrate_fixed(
         auto ymid = rk4_step(func, x, y, h_actual / 2.0);
         auto y2   = rk4_step(func, x + h_actual / 2.0, ymid, h_actual / 2.0);
 
-        // Обнаружили NaN/Inf — шаг слишком большой, останавливаемся
         if (has_bad_values(y1) || has_bad_values(y2)) {
             std::cerr << "ОШИБКА: численная нестабильность на шаге " << step_count + 1
                       << " (x=" << x << ", h=" << h_actual << ").\n"
                       << "Уменьшите шаг h.\n";
             break;
         }
-
-        double v   = y1[0];
-        double v2  = y2[0];
-        double err = v - v2;
 
         double exact = 0.0;
         if (is_test)
@@ -74,16 +89,15 @@ std::vector<StepResult> integrate_fixed(
         StepResult res;
         res.x     = x + h_actual;
         res.y     = y2;
-        res.v     = v;
-        res.v2    = v2;
-        res.err   = err;
+        res.v     = y1[0];
+        res.v2    = y2[0];
+        res.err   = y1[0] - y2[0];
         res.h     = h_actual;
-        res.c1    = 0;
-        res.c2    = 0;
+        res.c1    = 0;   // C1 = удвоений (постоянный шаг — всегда 0)
+        res.c2    = 0;   // C2 = делений  (постоянный шаг — всегда 0)
         res.exact = exact;
 
         results.push_back(res);
-
         x = res.x;
         y = y2;
         ++step_count;
@@ -104,33 +118,38 @@ std::vector<StepResult> integrate_adaptive(
     double u0_exact)
 {
     std::vector<StepResult> results;
+
+    // Добавляем начальную точку
+    results.push_back(make_initial(x0, y0, is_test, u0_exact));
+
     double x = x0;
     std::vector<double> y = y0;
     double h = h0;
-    int step_count = 0;
-    int total_deletions = 0;
-    int total_doublings = 0;
+    int step_count    = 0;
+    int total_doublings = 0;   // C1 — удвоений шага
+    int total_halvings  = 0;   // C2 — делений шага
 
     while (step_count < Nmax) {
         double remain = xmax - x;
         if (remain <= h * 1e-10) break;
 
         double current_h = std::min(h, remain);
-        bool accepted = false;
         std::vector<double> y1, y2;
         double err = 0.0;
+        bool halved_this_step = false;  // флаг: было ли деление на этом шаге
 
+        bool accepted = false;
         while (!accepted) {
             y1 = rk4_step(func, x, y, current_h);
             auto ymid = rk4_step(func, x, y, current_h / 2.0);
             y2 = rk4_step(func, x + current_h / 2.0, ymid, current_h / 2.0);
 
-            // NaN/Inf при адаптивном — делим шаг
             if (has_bad_values(y1) || has_bad_values(y2)) {
                 current_h /= 2.0;
-                ++total_deletions;
+                ++total_halvings;
+                halved_this_step = true;
                 if (current_h < 1e-12) {
-                    std::cerr << "ОШИБКА: шаг слишком мал, интегрирование прервано.\n";
+                    std::cerr << "ОШИБКА: шаг слишком мал.\n";
                     goto done;
                 }
                 continue;
@@ -140,21 +159,26 @@ std::vector<StepResult> integrate_adaptive(
 
             if (err <= eps) {
                 accepted = true;
-                double doubled = current_h * 2.0;
-                if (err < eps / 10.0 && doubled < (xmax - x) * (1.0 - 1e-10)) {
-                    h = doubled;
-                    ++total_doublings;
-                } else {
-                    h = current_h;
-                }
             } else {
                 current_h /= 2.0;
-                ++total_deletions;
+                ++total_halvings;
+                halved_this_step = true;
                 if (current_h < 1e-12) {
-                    std::cerr << "Внимание: шаг стал слишком маленьким.\n";
+                    std::cerr << "Шаг слишком мал, принудительное принятие.\n";
                     accepted = true;
-                    h = current_h;
                 }
+            }
+        }
+
+        // Удвоение — только если на этом шаге НЕ было делений
+        {
+            double doubled = current_h * 2.0;
+            if (!halved_this_step && err < eps / 32.0
+                    && doubled < remain * (1.0 - 1e-10)) {
+                h = doubled;
+                ++total_doublings;
+            } else {
+                h = current_h;
             }
         }
 
@@ -170,18 +194,17 @@ std::vector<StepResult> integrate_adaptive(
             res.v2    = y2[0];
             res.err   = err;
             res.h     = current_h;
-            res.c1    = total_deletions;
-            res.c2    = total_doublings;
+            res.c1    = total_doublings;  // C1 = удвоений
+            res.c2    = total_halvings;   // C2 = делений
             res.exact = exact;
 
             results.push_back(res);
-
             x = res.x;
             y = y2;
             ++step_count;
         }
     }
 
-    done:
+done:
     return results;
 }
