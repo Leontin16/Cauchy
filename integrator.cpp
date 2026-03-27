@@ -29,23 +29,6 @@ std::vector<double> rk4_step(
     return ynext;
 }
 
-// Начальная точка для вывода
-static StepResult make_initial(double x0, const std::vector<double>& y0,
-                                bool is_test, double u0_exact)
-{
-    StepResult r;
-    r.x     = x0;
-    r.y     = y0;
-    r.v     = y0[0];
-    r.v2    = y0[0];
-    r.err   = 0.0;
-    r.h     = 0.0;
-    r.c1    = 0;   // C1 = удвоений
-    r.c2    = 0;   // C2 = делений
-    r.exact = is_test ? u0_exact * std::exp(-1.5 * x0) : 0.0;
-    return r;
-}
-
 std::vector<StepResult> integrate_fixed(
     const std::function<std::vector<double>(double, const std::vector<double>&)>& func,
     double x0,
@@ -57,52 +40,52 @@ std::vector<StepResult> integrate_fixed(
     double u0_exact)
 {
     std::vector<StepResult> results;
-
-    // Добавляем начальную точку
-    results.push_back(make_initial(x0, y0, is_test, u0_exact));
-
     double x = x0;
     std::vector<double> y = y0;
-    int step_count = 0;
 
-    while (step_count < Nmax) {
-        double remain = xmax - x;
-        if (remain <= h * 1e-10) break;
-
-        double h_actual = std::min(h, remain);
-
-        auto y1   = rk4_step(func, x, y, h_actual);
-        auto ymid = rk4_step(func, x, y, h_actual / 2.0);
-        auto y2   = rk4_step(func, x + h_actual / 2.0, ymid, h_actual / 2.0);
-
-        if (has_bad_values(y1) || has_bad_values(y2)) {
-            std::cerr << "ОШИБКА: численная нестабильность на шаге " << step_count + 1
-                      << " (x=" << x << ", h=" << h_actual << ").\n"
-                      << "Уменьшите шаг h.\n";
-            break;
-        }
-
-        double exact = 0.0;
-        if (is_test)
-            exact = u0_exact * std::exp(-1.5 * (x + h_actual));
-
+    {
         StepResult res;
-        res.x     = x + h_actual;
-        res.y     = y2;
-        res.v     = y1[0];
-        res.v2    = y2[0];
-        res.err   = y1[0] - y2[0];
-        res.h     = h_actual;
-        res.c1    = 0;   // C1 = удвоений (постоянный шаг — всегда 0)
-        res.c2    = 0;   // C2 = делений  (постоянный шаг — всегда 0)
-        res.exact = exact;
-
+        res.x = x;
+        res.y = y;
+        res.v = y[0];
+        res.v2 = y[0];
+        res.err = 0.0;
+        res.h = h;
+        res.c1 = 0;
+        res.c2 = 0;
+        if (is_test) res.exact = u0_exact;
         results.push_back(res);
-        x = res.x;
-        y = y2;
-        ++step_count;
     }
 
+    int steps = 0;
+    while (x < xmax && steps < Nmax) {
+        double current_h = h;
+        if (x + current_h > xmax) current_h = xmax - x;
+
+        std::vector<double> y_full = rk4_step(func, x, y, current_h);
+        std::vector<double> y_half1 = rk4_step(func, x, y, 0.5 * current_h);
+        std::vector<double> y_half2 = rk4_step(func, x + 0.5 * current_h, y_half1, 0.5 * current_h);
+
+        double err = std::fabs(y_full[0] - y_half2[0]) / 15.0;
+
+        x += current_h;
+        y = y_half2;
+        steps++;
+
+        StepResult res;
+        res.x = x;
+        res.y = y;
+        res.v = y_half2[0];
+        res.v2 = y_full[0];
+        res.err = err;
+        res.h = current_h;
+        res.c1 = 0;
+        res.c2 = 0;
+        if (is_test) res.exact = u0_exact * std::exp(-1.5 * x);
+        results.push_back(res);
+
+        if (has_bad_values(y)) break;
+    }
     return results;
 }
 
@@ -118,93 +101,95 @@ std::vector<StepResult> integrate_adaptive(
     double u0_exact)
 {
     std::vector<StepResult> results;
-
-    // Добавляем начальную точку
-    results.push_back(make_initial(x0, y0, is_test, u0_exact));
-
     double x = x0;
     std::vector<double> y = y0;
     double h = h0;
-    int step_count    = 0;
-    int total_doublings = 0;   // C1 — удвоений шага
-    int total_halvings  = 0;   // C2 — делений шага
 
-    while (step_count < Nmax) {
+    {
+        StepResult res;
+        res.x = x;
+        res.y = y;
+        res.v = y[0];
+        res.v2 = y[0];
+        res.err = 0.0;
+        res.h = h;
+        res.c1 = 0;
+        res.c2 = 0;
+        if (is_test) res.exact = u0_exact;
+        results.push_back(res);
+    }
+
+    int total_steps = 0;
+
+    while (x < xmax && total_steps < Nmax) {
         double remain = xmax - x;
-        if (remain <= h * 1e-10) break;
+        if (h > remain) h = remain;
 
-        double current_h = std::min(h, remain);
-        std::vector<double> y1, y2;
-        double err = 0.0;
-        bool halved_this_step = false;  // флаг: было ли деление на этом шаге
-
+        double current_h = h;
         bool accepted = false;
-        while (!accepted) {
-            y1 = rk4_step(func, x, y, current_h);
-            auto ymid = rk4_step(func, x, y, current_h / 2.0);
-            y2 = rk4_step(func, x + current_h / 2.0, ymid, current_h / 2.0);
+        double err = 0.0;
+        std::vector<double> y1, y2;
+        
+        bool halved_this_step = false;
+        int step_c2 = 0; // Счётчик делений для конкретного узла
 
-            if (has_bad_values(y1) || has_bad_values(y2)) {
+        while (!accepted && total_steps < Nmax) {
+            y1 = rk4_step(func, x, y, current_h);
+            std::vector<double> yh = rk4_step(func, x, y, 0.5 * current_h);
+            y2 = rk4_step(func, x + 0.5 * current_h, yh, 0.5 * current_h);
+
+            if (has_bad_values(y2)) {
                 current_h /= 2.0;
-                ++total_halvings;
+                step_c2++;
                 halved_this_step = true;
-                if (current_h < 1e-12) {
-                    std::cerr << "ОШИБКА: шаг слишком мал.\n";
-                    goto done;
-                }
                 continue;
             }
 
-            err = std::fabs(y1[0] - y2[0]);
+            err = std::fabs(y1[0] - y2[0]) / 15.0; 
 
             if (err <= eps) {
                 accepted = true;
             } else {
                 current_h /= 2.0;
-                ++total_halvings;
+                step_c2++;
                 halved_this_step = true;
-                if (current_h < 1e-12) {
-                    std::cerr << "Шаг слишком мал, принудительное принятие.\n";
-                    accepted = true;
+                if (current_h < 1e-15) {
+                    accepted = true; // Защита от бесконечного цикла
                 }
             }
         }
 
-        // Удвоение — только если на этом шаге НЕ было делений
+        int step_c1 = 0; // Счётчик удвоений для конкретного узла
         {
             double doubled = current_h * 2.0;
-            if (!halved_this_step && err < eps / 32.0
-                    && doubled < remain * (1.0 - 1e-10)) {
+            if (!halved_this_step && err < eps / 32.0 && (x + doubled <= xmax + 1e-12)) {
                 h = doubled;
-                ++total_doublings;
+                step_c1 = 1; 
             } else {
                 h = current_h;
             }
         }
 
-        {
-            double exact = 0.0;
-            if (is_test)
-                exact = u0_exact * std::exp(-1.5 * (x + current_h));
+        x += current_h;
+        y = y2;
+        total_steps++;
 
-            StepResult res;
-            res.x     = x + current_h;
-            res.y     = y2;
-            res.v     = y1[0];
-            res.v2    = y2[0];
-            res.err   = err;
-            res.h     = current_h;
-            res.c1    = total_doublings;  // C1 = удвоений
-            res.c2    = total_halvings;   // C2 = делений
-            res.exact = exact;
+        StepResult res;
+        res.x     = x;
+        res.y     = y;
+        res.v     = y2[0];
+        res.v2    = y1[0];
+        res.err   = err;
+        res.h     = current_h;
+        res.c1    = step_c1;
+        res.c2    = step_c2;
+        if (is_test)
+            res.exact = u0_exact * std::exp(-1.5 * x);
+        
+        results.push_back(res);
 
-            results.push_back(res);
-            x = res.x;
-            y = y2;
-            ++step_count;
-        }
+        if (has_bad_values(y)) break;
     }
 
-done:
     return results;
 }
